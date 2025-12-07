@@ -1,0 +1,46 @@
+name: RSA-Challenge-Submit
+
+on:
+  repository_dispatch:
+    types: [rsa-submit]
+
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Process submission
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const payload = context.payload.client_payload;
+
+          const issueTitle = `Challenge ${payload.name}`;
+          const body = `RSA Challenge leaderboard for **${payload.name}**`;
+
+          // Check if issue exists
+          const issues = await github.rest.issues.listForRepo({
+            owner: "Abhrankan-Chakrabarti",
+            repo: "rsa-challenge-site",
+            state: "open"
+          });
+
+          let issue = issues.data.find(i => i.title === issueTitle);
+
+          if (!issue) {
+            const newIssue = await github.rest.issues.create({
+              owner: "Abhrankan-Chakrabarti",
+              repo: "rsa-challenge-site",
+              title: issueTitle,
+              body
+            });
+            issue = newIssue.data;
+          }
+
+          await github.rest.issues.createComment({
+            owner: "Abhrankan-Chakrabarti",
+            repo: "rsa-challenge-site",
+            issue_number: issue.number,
+            body: `👤 **${payload.user}** submitted:\n\n\`${payload.guess}\`\n\nSHA256: \`${payload.sha256}\``
+          });
+
+          return "OK";
