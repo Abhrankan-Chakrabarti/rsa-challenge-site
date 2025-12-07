@@ -9,7 +9,7 @@ export default {
           method: "POST",
           headers: {
             "Accept": "application/vnd.github+json",
-            "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+            "Authorization": `Bearer ${env.GH_PAT}`,   // <-- FIXED
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
