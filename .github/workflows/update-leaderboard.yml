@@ -1,0 +1,99 @@
+name: Update RSA Leaderboard
+
+on:
+  issues:
+    types: [labeled, reopened]
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  build-leaderboard:
+    # Only run when the issue has the "accepted" label
+    if: contains(github.event.issue.labels.*.name, 'accepted')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build leaderboard.json
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Fetch all accepted issues (pagination-safe)
+            let issues = [];
+            let page = 1;
+            while (true) {
+              const res = await github.rest.issues.listForRepo({
+                owner,
+                repo,
+                labels: 'accepted',
+                state: 'all',
+                per_page: 100,
+                page
+              });
+              if (res.data.length === 0) break;
+              issues.push(...res.data);
+              page++;
+            }
+
+            const leaderboard = {};
+
+            function extract(label, body) {
+              const r = new RegExp(`\\*\\*${label}\\*\\*\\s*\\n([^\\n]+)`, 'i');
+              const m = body.match(r);
+              return m ? m[1].trim() : null;
+            }
+
+            for (const issue of issues) {
+              const body = issue.body || '';
+
+              const challenge = extract('Which RSA challenge\\?', body);
+              const user = extract('Your name', body);
+              const sha256 = extract('SHA-256', body);
+
+              if (!challenge || !user || !sha256) continue;
+
+              if (!leaderboard[challenge]) {
+                leaderboard[challenge] = [];
+              }
+
+              // Deduplicate: one solve per user per challenge
+              const already = leaderboard[challenge].find(
+                e => e.user.toLowerCase() === user.toLowerCase()
+              );
+              if (already) continue;
+
+              leaderboard[challenge].push({
+                user,
+                sha256: sha256.toLowerCase(),
+                timestamp: issue.created_at,
+                issue: issue.number
+              });
+            }
+
+            // Sort each challenge by timestamp (first solve wins)
+            for (const k of Object.keys(leaderboard)) {
+              leaderboard[k].sort(
+                (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+              );
+            }
+
+            fs.writeFileSync(
+              'leaderboard.json',
+              JSON.stringify(leaderboard, null, 2)
+            );
+
+      - name: Commit leaderboard.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add leaderboard.json
+          git commit -m "Update leaderboard" || echo "No changes"
+          git push
