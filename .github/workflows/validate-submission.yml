@@ -1,0 +1,77 @@
+name: Validate RSA Submission
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  validate:
+    if: contains(github.event.issue.labels.*.name, 'submission')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Parse issue body
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body;
+
+            function extract(label) {
+              const r = new RegExp(`\\*\\*${label}\\*\\*\\s*\\n([^\\n]+)`, 'i');
+              const m = body.match(r);
+              return m ? m[1].trim() : null;
+            }
+
+            const challenge = extract('Which RSA challenge\\?');
+            const plaintext = extract('Plaintext');
+            const sha256 = extract('SHA-256');
+            const user = extract('Your name');
+
+            if (!challenge || !plaintext || !sha256 || !user) {
+              core.setFailed("Missing required fields");
+            }
+
+            return { challenge, plaintext, sha256, user };
+
+      - name: Validate SHA-256
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const crypto = require('crypto');
+            const { plaintext, sha256 } = ${{ steps.parse.outputs.result }};
+
+            const normalized = plaintext.trim().toUpperCase().replace(/\s+/g, ' ');
+            if (!/^[A-Z ]+$/.test(normalized)) {
+              throw new Error("Invalid characters in plaintext");
+            }
+
+            const hash = crypto.createHash('sha256').update(normalized).digest('hex');
+
+            if (hash !== sha256.toLowerCase()) {
+              throw new Error("SHA-256 does not match plaintext");
+            }
+
+            return normalized;
+
+      - name: Accept submission
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "✅ **Correct!** Your solution is valid and has been recorded."
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ["accepted"]
+            });
